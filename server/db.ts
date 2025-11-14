@@ -15,10 +15,23 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      const client = postgres(process.env.DATABASE_URL);
+      // Parse DATABASE_URL and add IPv4 preference
+      const connectionString = process.env.DATABASE_URL;
+      const client = postgres(connectionString, {
+        ssl: { rejectUnauthorized: false },
+        max: 1,
+        idle_timeout: 20,
+        connect_timeout: 10,
+        fetch_types: false,
+        // Use connection options to prefer IPv4
+        connection: {
+          application_name: 'family-sns-web',
+        },
+      });
       _db = drizzle(client);
+      console.log('[Database] Connected successfully');
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.error("[Database] Failed to connect:", error);
       _db = null;
     }
   }
@@ -63,13 +76,15 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       // Insert new user
       const insertData: InsertUser = {
         openId: user.openId,
-        name: user.name,
-        email: user.email,
-        loginMethod: user.loginMethod,
-        fullName: user.fullName,
-        avatarUrl: user.avatarUrl,
-        familyId: user.familyId,
+        name: user.name ?? null,
+        email: user.email ?? null,
+        loginMethod: user.loginMethod ?? null,
+        fullName: user.fullName ?? null,
+        avatarUrl: user.avatarUrl ?? null,
+        familyId: user.familyId ?? null,
         role: user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user'),
+        createdAt: new Date(),
+        updatedAt: new Date(),
         lastSignedIn: user.lastSignedIn || new Date(),
       };
       
@@ -116,10 +131,20 @@ export async function createUserProfile(user: {
 
 // Invite code helpers
 export async function getInviteCodeByCode(code: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  try {
+    const db = await getDb();
+    if (!db) {
+      console.error('[getInviteCodeByCode] Database not available');
+      return undefined;
+    }
+    console.log('[getInviteCodeByCode] Querying for code:', code);
+    const result = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code)).limit(1);
+    console.log('[getInviteCodeByCode] Query result:', result);
+    return result.length > 0 ? result[0] : undefined;
+  } catch (error) {
+    console.error('[getInviteCodeByCode] Error:', error);
+    throw error;
+  }
 }
 
 export async function markInviteCodeAsUsed(id: string) {
