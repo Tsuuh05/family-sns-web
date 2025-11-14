@@ -1,5 +1,6 @@
 import { eq, and, desc } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { 
   InsertUser, users, 
   families, InsertFamily,
@@ -14,7 +15,8 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const client = postgres(process.env.DATABASE_URL);
+      _db = drizzle(client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -35,51 +37,44 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod", "fullName", "avatarUrl"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
+    const existing = await getUserByOpenId(user.openId);
+    
+    if (existing) {
+      // Update existing user
+      const updateData: Partial<InsertUser> = {};
+      
+      if (user.name !== undefined) updateData.name = user.name;
+      if (user.email !== undefined) updateData.email = user.email;
+      if (user.loginMethod !== undefined) updateData.loginMethod = user.loginMethod;
+      if (user.fullName !== undefined) updateData.fullName = user.fullName;
+      if (user.avatarUrl !== undefined) updateData.avatarUrl = user.avatarUrl;
+      if (user.familyId !== undefined) updateData.familyId = user.familyId;
+      if (user.role !== undefined) updateData.role = user.role;
+      if (user.lastSignedIn !== undefined) updateData.lastSignedIn = user.lastSignedIn;
+      
+      updateData.updatedAt = new Date();
+      
+      if (Object.keys(updateData).length > 0) {
+        await db.update(users)
+          .set(updateData)
+          .where(eq(users.openId, user.openId));
+      }
+    } else {
+      // Insert new user
+      const insertData: InsertUser = {
+        openId: user.openId,
+        name: user.name,
+        email: user.email,
+        loginMethod: user.loginMethod,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl,
+        familyId: user.familyId,
+        role: user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user'),
+        lastSignedIn: user.lastSignedIn || new Date(),
+      };
+      
+      await db.insert(users).values(insertData);
     }
-    if (user.familyId !== undefined) {
-      values.familyId = user.familyId;
-      updateSet.familyId = user.familyId;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -93,7 +88,7 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getUserById(id: number) {
+export async function getUserById(id: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
@@ -104,7 +99,7 @@ export async function createUserProfile(user: {
   openId: string;
   email: string;
   fullName: string;
-  familyId: number;
+  familyId: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -127,21 +122,21 @@ export async function getInviteCodeByCode(code: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function markInviteCodeAsUsed(id: number) {
+export async function markInviteCodeAsUsed(id: string) {
   const db = await getDb();
   if (!db) return;
   await db.update(inviteCodes).set({ isUsed: true }).where(eq(inviteCodes.id, id));
 }
 
 // Family helpers
-export async function getFamilyById(id: number) {
+export async function getFamilyById(id: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select().from(families).where(eq(families.id, id)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function getFamilyMembers(familyId: number) {
+export async function getFamilyMembers(familyId: string) {
   const db = await getDb();
   if (!db) return [];
   return await db.select().from(users).where(eq(users.familyId, familyId));
@@ -155,16 +150,17 @@ export async function createPost(post: InsertPost) {
   return result;
 }
 
-export async function getPostsByFamilyId(familyId: number) {
+export async function getPostsByFamilyId(familyId: string) {
   const db = await getDb();
   if (!db) return [];
   const result = await db.select({
     id: posts.id,
-    userId: posts.userId,
+    authorId: posts.authorId,
     familyId: posts.familyId,
     content: posts.content,
     imageUrl: posts.imageUrl,
     createdAt: posts.createdAt,
+    updatedAt: posts.updatedAt,
     author: {
       id: users.id,
       fullName: users.fullName,
@@ -172,22 +168,23 @@ export async function getPostsByFamilyId(familyId: number) {
     },
   })
     .from(posts)
-    .leftJoin(users, eq(posts.userId, users.id))
+    .leftJoin(users, eq(posts.authorId, users.id))
     .where(eq(posts.familyId, familyId))
     .orderBy(desc(posts.createdAt));
   return result;
 }
 
-export async function getPostById(id: number) {
+export async function getPostById(id: string) {
   const db = await getDb();
   if (!db) return undefined;
   const result = await db.select({
     id: posts.id,
-    userId: posts.userId,
+    authorId: posts.authorId,
     familyId: posts.familyId,
     content: posts.content,
     imageUrl: posts.imageUrl,
     createdAt: posts.createdAt,
+    updatedAt: posts.updatedAt,
     author: {
       id: users.id,
       fullName: users.fullName,
@@ -195,16 +192,16 @@ export async function getPostById(id: number) {
     },
   })
     .from(posts)
-    .leftJoin(users, eq(posts.userId, users.id))
+    .leftJoin(users, eq(posts.authorId, users.id))
     .where(eq(posts.id, id))
     .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function deletePost(id: number, userId: number) {
+export async function deletePost(id: string, userId: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(posts).where(and(eq(posts.id, id), eq(posts.userId, userId)));
+  await db.delete(posts).where(and(eq(posts.id, id), eq(posts.authorId, userId)));
 }
 
 // Comment helpers
@@ -215,15 +212,16 @@ export async function createComment(comment: InsertComment) {
   return result;
 }
 
-export async function getCommentsByPostId(postId: number) {
+export async function getCommentsByPostId(postId: string) {
   const db = await getDb();
   if (!db) return [];
   const result = await db.select({
     id: comments.id,
     postId: comments.postId,
-    userId: comments.userId,
+    authorId: comments.authorId,
     content: comments.content,
     createdAt: comments.createdAt,
+    updatedAt: comments.updatedAt,
     author: {
       id: users.id,
       fullName: users.fullName,
@@ -231,14 +229,14 @@ export async function getCommentsByPostId(postId: number) {
     },
   })
     .from(comments)
-    .leftJoin(users, eq(comments.userId, users.id))
+    .leftJoin(users, eq(comments.authorId, users.id))
     .where(eq(comments.postId, postId))
     .orderBy(desc(comments.createdAt));
   return result;
 }
 
-export async function deleteComment(id: number, userId: number) {
+export async function deleteComment(id: string, userId: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(comments).where(and(eq(comments.id, id), eq(comments.userId, userId)));
+  await db.delete(comments).where(and(eq(comments.id, id), eq(comments.authorId, userId)));
 }

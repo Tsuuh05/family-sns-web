@@ -16,16 +16,16 @@ export default function PostDetail() {
   const { user, isAuthenticated } = useAuth();
   const [newComment, setNewComment] = useState("");
 
-  const postId = params?.id ? parseInt(params.id) : 0;
+  const postId = params?.id || "";
 
   const { data: post, isLoading: postLoading } = trpc.posts.getById.useQuery(
     { id: postId },
-    { enabled: isAuthenticated && postId > 0 }
+    { enabled: isAuthenticated && !!postId }
   );
 
   const { data: comments, isLoading: commentsLoading, refetch: refetchComments } = trpc.comments.list.useQuery(
     { postId },
-    { enabled: isAuthenticated && postId > 0 }
+    { enabled: isAuthenticated && !!postId }
   );
 
   const createCommentMutation = trpc.comments.create.useMutation({

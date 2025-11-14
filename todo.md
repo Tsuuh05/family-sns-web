@@ -62,3 +62,20 @@
 - [ ] Comment editing and deletion UI
 - [ ] User avatar upload
 - [ ] Family member management UI
+
+## Render.com Deployment Bug Fix
+
+- [x] Fix frontend Supabase client environment variable loading (Invalid URL error)
+- [ ] Update client-side Supabase initialization to properly read VITE_ prefixed env vars
+- [ ] Test and verify fix on Render.com
+
+## Critical Frontend Bug
+
+- [x] Fix Invalid URL error in frontend Supabase initialization
+- [ ] Ensure VITE environment variables are properly loaded during build
+- [ ] Remove any frontend Supabase client initialization if not needed
+
+## Invite Code Validation Bug
+
+- [x] Fix validateInviteCode to use publicProcedure (currently requires authentication)
+- [ ] Migrate from MySQL to PostgreSQL for Supabase compatibility
