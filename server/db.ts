@@ -11,7 +11,7 @@ import {
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
-
+//
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
