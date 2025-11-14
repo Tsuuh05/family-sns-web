@@ -16,53 +16,61 @@ export const appRouter = router({
     
     // Sign up with email and password
     signUp: publicProcedure
-      .input(
-        z.object({
-          email: z.string().email(),
-          password: z.string().min(6),
-          fullName: z.string().min(1),
-          inviteCode: z.string().min(1),
-        })
-      )
-      .mutation(async ({ input }) => {
-        // 1. Validate invite code
-        const inviteCodeData = await db.getInviteCodeByCode(input.inviteCode);
-        if (!inviteCodeData) {
-          throw new TRPCError({ code: 'NOT_FOUND', message: '招待コードが見つかりません' });
-        }
-        if (inviteCodeData.isUsed) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'この招待コードは既に使用されています' });
-        }
+  .input(z.object({
+    email: z.string().email(),
+    password: z.string().min(6),
+    inviteCode: z.string(),
+    fullName: z.string(),
+  }))
+  .mutation(async ({ input, ctx }) => {
+    // 1. Validate invite code
+    const inviteCode = await db.getInviteCodeByCode(input.inviteCode);
+    if (!inviteCode) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: '招待コードが見つかりません' });
+    }
+    if (inviteCode.isUsed) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'この招待コードは既に使用されています' });
+    }
 
-        // 2. Create Supabase auth user
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: input.email,
-          password: input.password,
-        });
+    // 2. Create user in Supabase Auth
+    const { data: authData, error: authError } = await supabaseAuth.signUp(
+      input.email,
+      input.password
+    );
 
-        if (authError || !authData.user) {
-          throw new TRPCError({ 
-            code: 'BAD_REQUEST', 
-            message: authError?.message || 'ユーザー作成に失敗しました' 
-          });
-        }
+    if (authError || !authData.user) {
+      throw new TRPCError({ 
+        code: 'INTERNAL_SERVER_ERROR', 
+        message: `ユーザー登録に失敗しました: ${authError?.message || '不明なエラー'}` 
+      });
+    }
 
-        // 3. Create user profile in database
-        await db.createUserProfile({
-          openId: authData.user.id,
-          email: input.email,
-          fullName: input.fullName,
-          familyId: inviteCodeData.familyId,
-        });
+    // 3. Create user in database
+    await db.upsertUser({
+      openId: authData.user.id,
+      email: input.email,
+      fullName: input.fullName,
+      familyId: inviteCode.familyId,
+      loginMethod: 'email',
+      lastSignedIn: new Date(),
+    });
 
-        // 4. Mark invite code as used
-        await db.markInviteCodeAsUsed(inviteCodeData.id);
+    // 4. Mark invite code as used
+    await db.markInviteCodeAsUsed(inviteCode.id);
 
-        return {
-          success: true,
-          user: authData.user,
-        };
-      }),
+    // 5. Create session
+    const sessionToken = jwt.sign(
+      { openId: authData.user.id },
+      ENV.jwtSecret,
+      { expiresIn: '7d' }
+    );
+
+    const cookieOptions = getSessionCookieOptions(ctx.req);
+    ctx.res.cookie(COOKIE_NAME, sessionToken, cookieOptions);
+
+    return { success: true };
+  }),
+
 
     // Sign in with email and password
     signIn: publicProcedure
