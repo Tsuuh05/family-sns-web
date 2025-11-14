@@ -15,16 +15,10 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      const client = postgres(process.env.DATABASE_URL, {
-        ssl: { rejectUnauthorized: false },
-        max: 1,
-        idle_timeout: 20,
-        connect_timeout: 10,
-      });
+      const client = postgres(process.env.DATABASE_URL);
       _db = drizzle(client);
-      console.log('[Database] Connected successfully');
     } catch (error) {
-      console.error("[Database] Failed to connect:", error);
+      console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
   }
@@ -122,20 +116,10 @@ export async function createUserProfile(user: {
 
 // Invite code helpers
 export async function getInviteCodeByCode(code: string) {
-  try {
-    const db = await getDb();
-    if (!db) {
-      console.error('[getInviteCodeByCode] Database not available');
-      return undefined;
-    }
-    console.log('[getInviteCodeByCode] Querying for code:', code);
-    const result = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code)).limit(1);
-    console.log('[getInviteCodeByCode] Query result:', result);
-    return result.length > 0 ? result[0] : undefined;
-  } catch (error) {
-    console.error('[getInviteCodeByCode] Error:', error);
-    throw error;
-  }
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }
 
 export async function markInviteCodeAsUsed(id: string) {
