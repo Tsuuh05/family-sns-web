@@ -75,23 +75,21 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     } else {
       // Insert new user
       const insertData: any = {
-        id: crypto.randomUUID(),
-        openId: user.openId,
-        role: user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user'),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        lastSignedIn: user.lastSignedIn || new Date(),
-      };
-      
-      // Only include defined fields
-      if (user.name !== undefined) insertData.name = user.name;
-      if (user.email !== undefined) insertData.email = user.email;
-      if (user.loginMethod !== undefined) insertData.loginMethod = user.loginMethod;
-      if (user.fullName !== undefined) insertData.fullName = user.fullName;
-      if (user.avatarUrl !== undefined) insertData.avatarUrl = user.avatarUrl;
-      if (user.familyId !== undefined) insertData.familyId = user.familyId;
-      
-      await db.insert(users).values(insertData);
+  id: crypto.randomUUID(),
+  openId: user.openId,
+  name: user.name ?? null,
+  email: user.email ?? null,
+  loginMethod: user.loginMethod ?? null,
+  role: user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user'),
+  familyId: user.familyId ?? null,
+  fullName: user.fullName ?? null,
+  avatarUrl: user.avatarUrl ?? null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  lastSignedIn: user.lastSignedIn || new Date(),
+};
+
+await db.insert(users).values(insertData);
     }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
