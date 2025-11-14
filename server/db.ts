@@ -16,12 +16,15 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       const client = postgres(process.env.DATABASE_URL, {
-        ssl: 'require',
+        ssl: { rejectUnauthorized: false },
         max: 1,
+        idle_timeout: 20,
+        connect_timeout: 10,
       });
       _db = drizzle(client);
+      console.log('[Database] Connected successfully');
     } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+      console.error("[Database] Failed to connect:", error);
       _db = null;
     }
   }
