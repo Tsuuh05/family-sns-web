@@ -7,6 +7,8 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
 import { supabase } from "./supabaseClient";
+import jwt from 'jsonwebtoken';
+import { ENV } from './_core/env';
 
 export const appRouter = router({
   system: systemRouter,
