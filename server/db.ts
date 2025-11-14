@@ -75,6 +75,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     } else {
       // Insert new user
       const insertData: any = {
+        id: crypto.randomUUID(),
         openId: user.openId,
         role: user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user'),
         createdAt: new Date(),
