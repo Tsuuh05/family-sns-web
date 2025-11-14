@@ -122,10 +122,20 @@ export async function createUserProfile(user: {
 
 // Invite code helpers
 export async function getInviteCodeByCode(code: string) {
-  const db = await getDb();
-  if (!db) return undefined;
-  const result = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  try {
+    const db = await getDb();
+    if (!db) {
+      console.error('[getInviteCodeByCode] Database not available');
+      return undefined;
+    }
+    console.log('[getInviteCodeByCode] Querying for code:', code);
+    const result = await db.select().from(inviteCodes).where(eq(inviteCodes.code, code)).limit(1);
+    console.log('[getInviteCodeByCode] Query result:', result);
+    return result.length > 0 ? result[0] : undefined;
+  } catch (error) {
+    console.error('[getInviteCodeByCode] Error:', error);
+    throw error;
+  }
 }
 
 export async function markInviteCodeAsUsed(id: string) {
